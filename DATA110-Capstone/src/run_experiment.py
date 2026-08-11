@@ -106,7 +106,7 @@ def prepare(df: pd.DataFrame, horizon: int):
 def compare_models(train_df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     """Compare models on an engine-held-out validation set."""
     fit_df, val_df = engine_holdout(train_df)
-    X_train, y_train, features = prepare(fit_df, horizon)
+    X_train, y_train, _ = prepare(fit_df, horizon)
     X_val, y_val, _ = prepare(val_df, horizon)
     rows = []
     for name, model in make_models().items():
@@ -139,18 +139,23 @@ def main():
     all_results = []
     for horizon in HORIZONS:
         print(f"Evaluating warning horizon: {horizon} cycles")
-        result = compare_models(train, horizon)
-        all_results.append(result)
+        all_results.append(compare_models(train, horizon))
 
     comparison = pd.concat(all_results, ignore_index=True)
     comparison.to_csv(output_dir / "model_comparison.csv", index=False)
 
     # The report identifies RF at a 50-cycle horizon as the selected operating point.
     selected_horizon = 50
-    X_train, y_train, feature_cols = prepare(train, selected_horizon)
-    X_test_all, _, _ = prepare(test, selected_horizon)
-    test_last = test.groupby("unit", sort=True).tail(1).copy()
-    X_test_last, _, _ = prepare(test_last, selected_horizon)
+    X_train, y_train, _ = prepare(train, selected_horizon)
+
+    # Build test features from the complete trajectories first, then retain the
+    # final observed cycle of each engine. This preserves rolling-history context.
+    test_labelled = add_warning_label(test, selected_horizon)
+    X_test_all, _, feature_cols = prepare(test_labelled, selected_horizon)
+    test_last_positions = test.groupby("unit", sort=True).tail(1).index
+    X_test_last = X_test_all.loc[test_last_positions].copy()
+    test_last = test.loc[test_last_positions].copy().sort_values("unit")
+    X_test_last = X_test_last.loc[test_last.index]
 
     rf = make_models()["Random Forest"]
     rf.fit(X_train, y_train)
