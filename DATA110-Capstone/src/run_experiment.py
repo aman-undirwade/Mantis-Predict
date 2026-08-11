@@ -148,14 +148,12 @@ def main():
     selected_horizon = 50
     X_train, y_train, _ = prepare(train, selected_horizon)
 
-    # Build test features from the complete trajectories first, then retain the
-    # final observed cycle of each engine. This preserves rolling-history context.
+    # Build test features from complete trajectories first so rolling statistics retain history.
     test_labelled = add_warning_label(test, selected_horizon)
-    X_test_all, _, feature_cols = prepare(test_labelled, selected_horizon)
-    test_last_positions = test.groupby("unit", sort=True).tail(1).index
-    X_test_last = X_test_all.loc[test_last_positions].copy()
-    test_last = test.loc[test_last_positions].copy().sort_values("unit")
-    X_test_last = X_test_last.loc[test_last.index]
+    X_test_all, _, _ = prepare(test_labelled, selected_horizon)
+    last_mask = test_labelled["cycle"].eq(test_labelled.groupby("unit")["cycle"].transform("max"))
+    X_test_last = X_test_all.loc[last_mask].reset_index(drop=True)
+    test_last = test_labelled.loc[last_mask].sort_values("unit").reset_index(drop=True)
 
     rf = make_models()["Random Forest"]
     rf.fit(X_train, y_train)
